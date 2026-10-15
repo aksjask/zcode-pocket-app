@@ -13,7 +13,7 @@ struct PocketWebView: UIViewRepresentable {
         let wv = WKWebView(frame: .zero, configuration: cfg)
         wv.navigationDelegate = context.coordinator
         wv.uiDelegate = context.coordinator
-        wv.allowsBackForwardGestures = true
+        wv.allowsBackForwardNavigationGestures = true
         wv.scrollView.isPagingEnabled = false
         wv.load(URLRequest(url: url))
         state.webView = wv
