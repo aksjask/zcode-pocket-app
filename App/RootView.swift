@@ -20,20 +20,17 @@ struct RootView: View {
     }
 
     @ViewBuilder private var mainView: some View {
-        ZStack(alignment: .top) {
-            if let url = URL(string: state.serverURL) {
-                PocketWebView(url: url)
-                    .ignoresSafeArea(edges: .bottom)
-            }
+        VStack(spacing: 0) {
+            // 固定顶栏（不悬浮在网页上，避免遮挡页面自己的按钮）
             HStack {
                 Button {
                     state.showSettings = true
                 } label: {
                     Image(systemName: "gearshape")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: 15, weight: .medium))
                         .foregroundColor(.white.opacity(0.85))
-                        .frame(width: 34, height: 30)
-                        .background(Color.black.opacity(0.35))
+                        .frame(width: 36, height: 28)
+                        .background(Color.white.opacity(0.08))
                         .clipShape(Capsule())
                 }
                 Spacer()
@@ -41,15 +38,20 @@ struct RootView: View {
                     state.reload()
                 } label: {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 15, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.white.opacity(0.85))
-                        .frame(width: 34, height: 30)
-                        .background(Color.black.opacity(0.35))
+                        .frame(width: 36, height: 28)
+                        .background(Color.white.opacity(0.08))
                         .clipShape(Capsule())
                 }
             }
             .padding(.horizontal, 10)
-            .padding(.top, 2)
+            .padding(.vertical, 5)
+            .background(Color(red: 0.078, green: 0.094, blue: 0.122))
+            if let url = URL(string: state.serverURL) {
+                PocketWebView(url: url)
+                    .ignoresSafeArea(edges: .bottom)
+            }
         }
         .sheet(isPresented: $state.showSettings) {
             SettingsView()
