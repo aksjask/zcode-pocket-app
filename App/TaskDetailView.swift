@@ -76,7 +76,7 @@ struct TaskDetailView: View {
         }
     }
 
-    private var lastBlockId: (String) -> String {
+    private var lastBlockId: ([ChatMessage]) -> String {
         { msgs in
             let all = msgs.flatMap { $0.blocks.map { $0.id } }
             return all.last ?? (msgs.last?.id ?? "top")
