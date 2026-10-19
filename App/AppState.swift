@@ -37,6 +37,12 @@ final class AppState: ObservableObject {
 
     // ---- 前后台切换 ----
     // 后台：静音保活 + 桥接轮询 + 官方中继接管（双通道通知）
+    func handleBackground() {
+        guard configured else { return }
+        SilentAudio.shared.start()
+        TaskWatcher.shared.start()
+        RelayMonitor.shared.activateForDispatch()
+    }
     // 前台：停掉保活/轮询；云端模式下中继保持，网页模式下让路
     func handleForeground() {
         SilentAudio.shared.stop()
