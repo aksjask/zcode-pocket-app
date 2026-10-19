@@ -26,6 +26,9 @@ final class RelayMonitor: ObservableObject {
     /// 桌面任务列表（云端模式主页用）
     var tasks: [TaskSummary] { relay.tasks }
 
+    /// 会话消息缓存（taskId → 消息流），任务详情页用
+    @Published var messages: [String: [ChatMessage]] = [:]
+
     var hasLink: Bool { OfficialLinkParser.parse(officialURL) != nil }
 
     private init() {
@@ -41,6 +44,15 @@ final class RelayMonitor: ObservableObject {
             self.objectWillChange.send()
             self.diffAndNotify()
         }
+        relay.onMessages = { [weak self] taskId, msgs in
+            self?.messages[taskId] = msgs
+            self?.objectWillChange.send()
+        }
+    }
+
+    /// 拉取某任务的会话消息（结果走 onMessages 回调）
+    func loadMessages(_ taskId: String) {
+        relay.loadMessages(for: taskId)
     }
 
     /// 前台临时接管中继（云派任务时用）

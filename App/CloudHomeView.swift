@@ -11,6 +11,7 @@ struct CloudHomeView: View {
     @State private var wsKey: String?
     @State private var sentTip = ""
     @State private var expanded: Set<String> = []
+    @State private var selected: TaskSummary?
 
     var body: some View {
         ScrollView {
@@ -96,6 +97,9 @@ struct CloudHomeView: View {
             mon.activateForDispatch()
             mon.refreshWorkspacesPub()
         }
+        .sheet(item: $selected) { t in
+            TaskDetailView(task: t)
+        }
     }
 
     // 当前排序后的全部任务
@@ -115,6 +119,8 @@ struct CloudHomeView: View {
             } else {
                 ForEach(list, id: \.id) { t in
                     taskRow(t)
+                        .contentShape(Rectangle())
+                        .onTapGesture { selected = t }
                 }
             }
         }
@@ -143,6 +149,8 @@ struct CloudHomeView: View {
                 DisclosureGroup(isExpanded: bindingFor(key)) {
                     ForEach(list, id: \.id) { t in
                         taskRow(t)
+                            .contentShape(Rectangle())
+                            .onTapGesture { selected = t }
                     }
                 } label: {
                     HStack(spacing: 8) {
