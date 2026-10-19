@@ -2,12 +2,15 @@ import SwiftUI
 
 // 云端模式主页：电脑不可达（外出/隧道断）时，经智谱官方中继派任务 + 看桌面任务。
 // 两边各自出网连智谱云，消息由云端转交——不依赖局域网/隧道。
+// 桌面任务支持「# 分组 / 📁 项目」双视图（对照桌面 ZCode 侧栏）。
 struct CloudHomeView: View {
     @EnvironmentObject var state: AppState
     @ObservedObject var mon = RelayMonitor.shared
+    @AppStorage("zp_cloudview") private var viewMode = "group"
     @State private var prompt = ""
     @State private var wsKey: String?
     @State private var sentTip = ""
+    @State private var expanded: Set<String> = []
 
     var body: some View {
         ScrollView {
@@ -71,34 +74,18 @@ struct CloudHomeView: View {
                     .background(Color(.secondarySystemBackground))
                     .cornerRadius(14)
 
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text("桌面任务").font(.headline).padding(.bottom, 6)
-                        let list = Array(mon.tasks.sorted { $0.updatedAt > $1.updatedAt }.prefix(20))
-                        if list.isEmpty {
-                            Text("暂无任务").font(.caption).foregroundColor(.secondary)
-                        } else {
-                            ForEach(list, id: \.id) { t in
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(t.title).font(.subheadline).lineLimit(1)
-                                        Text(relTime(t.updatedAt)).font(.caption2).foregroundColor(.secondary)
-                                    }
-                                    Spacer()
-                                    Text(statusText(t.status))
-                                        .font(.caption2)
-                                        .padding(.horizontal, 8).padding(.vertical, 3)
-                                        .background(statusColor(t.status).opacity(0.18))
-                                        .foregroundColor(statusColor(t.status))
-                                        .cornerRadius(8)
-                                }
-                                .padding(.vertical, 6)
-                                Divider()
-                            }
-                        }
+                    // ---- 双视图切换 ----
+                    Picker("视图", selection: $viewMode) {
+                        Text("# 分组").tag("group")
+                        Text("📁 项目").tag("project")
                     }
-                    .padding(12)
-                    .background(Color(.secondarySystemBackground))
-                    .cornerRadius(14)
+                    .pickerStyle(.segmented)
+
+                    if viewMode == "group" {
+                        groupView
+                    } else {
+                        projectView
+                    }
                 }
                 Text("连回家里 WiFi 后点「重试电脑」，可回到完整 Pocket 网页（历史/统计/精确派活）。")
                     .font(.caption2).foregroundColor(.secondary)
@@ -111,6 +98,100 @@ struct CloudHomeView: View {
         }
     }
 
+    // 当前排序后的全部任务
+    private var sortedTasks: [TaskSummary] {
+        let pin = mon.tasks.filter { $0.pinned }.sorted { $0.updatedAt > $1.updatedAt }
+        let rest = mon.tasks.filter { !$0.pinned }.sorted { $0.updatedAt > $1.updatedAt }
+        return pin + rest
+    }
+
+    /// 「# 分组」：置顶在前 + 扁平列表
+    private var groupView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("桌面任务").font(.headline).padding(.bottom, 6)
+            let list = Array(sortedTasks.prefix(25))
+            if list.isEmpty {
+                Text("暂无任务").font(.caption).foregroundColor(.secondary)
+            } else {
+                ForEach(list, id: \.id) { t in
+                    taskRow(t)
+                }
+            }
+        }
+        .padding(12)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(14)
+    }
+
+    /// 「📁 项目」：按工作区分格折叠
+    private var projectView: some View {
+        let groups = Dictionary(grouping: mon.tasks) { t in
+            (t.workspacePath ?? "").isEmpty ? "其他" : (t.workspacePath ?? "其他")
+        }
+        let order = groups.keys.sorted { a, b in
+            let ma = groups[a]!.map { $0.updatedAt }.max() ?? 0
+            let mb = groups[b]!.map { $0.updatedAt }.max() ?? 0
+            return ma > mb
+        }
+        return VStack(alignment: .leading, spacing: 10) {
+            if order.isEmpty {
+                Text("暂无任务").font(.caption).foregroundColor(.secondary)
+            }
+            ForEach(order, id: \.self) { key in
+                let list = (groups[key] ?? []).sorted { $0.updatedAt > $1.updatedAt }
+                let hasRunning = list.contains { $0.isRunning }
+                DisclosureGroup(isExpanded: bindingFor(key)) {
+                    ForEach(list, id: \.id) { t in
+                        taskRow(t)
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Text(displayName(key)).font(.subheadline).fontWeight(.semibold).lineLimit(1)
+                        if hasRunning { Circle().fill(Color.blue).frame(width: 7, height: 7) }
+                        Spacer()
+                        Text("\(list.count) 任务").font(.caption2).foregroundColor(.secondary)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(14)
+    }
+
+    private func bindingFor(_ key: String) -> Binding<Bool> {
+        Binding(
+            get: { expanded.contains(key) || mon.tasks.count <= 15 },
+            set: { if $0 { expanded.insert(key) } else { expanded.remove(key) } }
+        )
+    }
+
+    private func displayName(_ path: String) -> String {
+        if path == "其他" { return "其他" }
+        // 云端模式拿不到电脑配置里的工作区昵称，用路径末段
+        return (path as NSString).lastPathComponent
+    }
+
+    private func taskRow(_ t: TaskSummary) -> some View {
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(t.title).font(.subheadline).lineLimit(1)
+                    Text(relTime(t.updatedAt)).font(.caption2).foregroundColor(.secondary)
+                }
+                Spacer()
+                Text(t.statusLabel)
+                    .font(.caption2)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(statusColor(t.status).opacity(0.18))
+                    .foregroundColor(statusColor(t.status))
+                    .cornerRadius(8)
+            }
+            .padding(.vertical, 6)
+            Divider()
+        }
+    }
+
     private func relTime(_ ms: Int) -> String {
         guard ms > 0 else { return "" }
         let diff = (Date().timeIntervalSince1970 * 1000 - Double(ms)) / 1000
@@ -118,14 +199,6 @@ struct CloudHomeView: View {
         if diff < 3600 { return "\(Int(diff / 60)) 分钟前" }
         if diff < 86400 { return "\(Int(diff / 3600)) 小时前" }
         return "\(Int(diff / 86400)) 天前"
-    }
-    private func statusText(_ s: String) -> String {
-        switch s {
-        case "running", "waiting": return "运行中"
-        case "completed": return "已完成"
-        case "error": return "出错"
-        default: return s
-        }
     }
     private func statusColor(_ s: String) -> Color {
         switch s {
