@@ -12,6 +12,13 @@ struct CloudHomeView: View {
     @State private var expanded: Set<String> = []
     @State private var selected: TaskSummary?
     @State private var inlineComposeFor: String?
+    @State private var sending = false
+
+    private var sortedTasks: [TaskSummary] {
+        let pin = mon.tasks.filter { $0.pinned }.sorted { $0.updatedAt > $1.updatedAt }
+        let rest = mon.tasks.filter { !$0.pinned }.sorted { $0.updatedAt > $1.updatedAt }
+        return pin + rest
+    }
 
     private let bg = Color.black
     private let card = Color(red: 0.075, green: 0.078, blue: 0.09)
