@@ -324,7 +324,7 @@ struct CloudHomeView: View {
             }
             VStack(alignment: .leading, spacing: 3) {
                 Text(taskTitle(t)).font(.system(size: 15)).foregroundColor(.white).lineLimit(2)
-                Text("\(t.source == "pocket" ? "手机" : "桌面") · \(relTime(t.updatedAt))")
+                Text("桌面 · \(relTime(t.updatedAt))")
                     .font(.caption).foregroundColor(.white.opacity(0.45))
             }
             Spacer()
