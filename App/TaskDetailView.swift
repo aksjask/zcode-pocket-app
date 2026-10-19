@@ -1,6 +1,6 @@
 import SwiftUI
 
-// 云端模式的任务详情：经中继拉取会话消息，原生渲染 + 底部续聊输入框。
+// 云端模式的任务详情：经中继拉取会话消息，原生渲染 + 底部官方风格 composer（续聊）。
 struct TaskDetailView: View {
     @ObservedObject var mon = RelayMonitor.shared
     let task: TaskSummary
@@ -27,15 +27,26 @@ struct TaskDetailView: View {
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                         } else {
-                            ScrollView {
-                                VStack(alignment: .leading, spacing: 10) {
-                                    ForEach(msgs) { m in
-                                        ForEach(m.blocks) { b in
-                                            blockView(m, b)
+                            ScrollViewReader { proxy in
+                                ScrollView {
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        ForEach(msgs) { m in
+                                            ForEach(m.blocks) { b in
+                                                blockView(m, b)
+                                                    .id(b.id)
+                                            }
                                         }
                                     }
+                                    .padding()
                                 }
-                                .padding()
+                                .onChange(of: mon.messages) { _ in
+                                    withAnimation { proxy.scrollTo(lastBlockId(msgs), anchor: .bottom) }
+                                }
+                                .onAppear {
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                                        proxy.scrollTo(lastBlockId(msgs), anchor: .bottom)
+                                    }
+                                }
                             }
                         }
                     }
@@ -65,26 +76,76 @@ struct TaskDetailView: View {
         }
     }
 
-    // 底部续聊输入框：经中继转给桌面会话
-    private var composer: some View {
-        HStack(spacing: 8) {
-            TextField("续聊 / 追加要求…", text: $prompt, axis: .vertical)
-                .lineLimit(1...4)
-                .padding(8)
-                .background(Color(.secondarySystemBackground))
-                .cornerRadius(12)
-            Button {
-                send()
-            } label: {
-                if sending {
-                    ProgressView().frame(width: 26)
-                } else {
-                    Image(systemName: "paperplane.fill")
-                        .foregroundColor(prompt.trimmingCharacters(in: .whitespaces).isEmpty ? .secondary : .accentColor)
-                }
-            }
-            .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty || sending)
+    private var lastBlockId: (String) -> String {
+        { msgs in
+            let all = msgs.flatMap { $0.blocks.map { $0.id } }
+            return all.last ?? (msgs.last?.id ?? "top")
         }
+    }
+
+    private var canSend: Bool {
+        !prompt.trimmingCharacters(in: .whitespaces).isEmpty && !sending
+    }
+
+    private var modeLabel: String {
+        switch task.mode {
+        case "plan": return "只读规划"
+        case "edit": return "允许改码"
+        case "yolo": return "全自动"
+        default: return task.mode?.isEmpty == false ? task.mode! : "跟随桌面"
+        }
+    }
+
+    // 官方 composer 风格：圆角大容器，上输入、下控件行 + 黑色圆形发送键
+    private var composer: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("续聊 / 追加要求…", text: $prompt, axis: .vertical)
+                .lineLimit(1...5)
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+            HStack(spacing: 10) {
+                HStack(spacing: 4) {
+                    Image(systemName: "shield.lefthalf.filled")
+                    Text(modeLabel).lineLimit(1)
+                }
+                .font(.caption2)
+                .foregroundColor(task.mode == "yolo" ? .orange : .secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.black.opacity(0.05))
+                .cornerRadius(8)
+                if let m = task.modelId, !m.isEmpty {
+                    Text(m)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.black.opacity(0.05))
+                        .cornerRadius(8)
+                }
+                Spacer()
+                Button {
+                    send()
+                } label: {
+                    Group {
+                        if sending {
+                            ProgressView().tint(.white)
+                        } else {
+                            Image(systemName: "arrow.up")
+                        }
+                    }
+                    .foregroundColor(.white)
+                    .frame(width: 32, height: 32)
+                    .background(Circle().fill(canSend ? Color.black : Color.black.opacity(0.25)))
+                }
+                .disabled(!canSend)
+            }
+            .padding(.horizontal, 8)
+            .padding(.bottom, 8)
+        }
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(18)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(Color(.systemBackground))
