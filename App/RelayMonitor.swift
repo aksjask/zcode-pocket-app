@@ -33,9 +33,14 @@ final class RelayMonitor: ObservableObject {
 
     private init() {
         relay.onStateChange = { [weak self] state in
-            self?.stateLabel = state.label
-            self?.objectWillChange.send()
-            guard let self, self.active else { return }
+            guard let self else { return }
+            switch state {
+            case .failed(let msg): self.stateLabel = "连接失败：" + msg
+            default: self.stateLabel = state.label
+            }
+            self.objectWillChange.send()
+            guard self.active else { return }
+            if case .paired = state { self.reconnectTimer?.invalidate() }
             if case .idle = state { self.reconnectAfter(3) }
             if case .failed = state { self.reconnectAfter(10) }
         }
@@ -99,12 +104,16 @@ final class RelayMonitor: ObservableObject {
     }
 
     private func reconnectAfter(_ seconds: TimeInterval) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+        reconnectTimer?.invalidate()
+        reconnectTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
             guard let self, self.active, self.hasLink else { return }
-            if case .idle = self.relay.state {
+            switch self.relay.state {
+            case .idle, .failed:
                 if let link = OfficialLinkParser.parse(self.officialURL) {
                     self.relay.connect(link)
                 }
+            default:
+                break
             }
         }
     }
