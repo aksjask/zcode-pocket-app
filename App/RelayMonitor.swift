@@ -21,7 +21,7 @@ final class RelayMonitor: ObservableObject {
     private var active = false
 
     /// 桌面上报的工作区（云派任务的选择列表）
-    var workspaces: [WorkspaceInfo] { relay.workspaces }
+    var workspaces: [OfficialRelay.WorkspaceInfo] { relay.workspaces }
 
     var hasLink: Bool { OfficialLinkParser.parse(officialURL) != nil }
 
