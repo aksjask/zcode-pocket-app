@@ -5,12 +5,15 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if state.configured {
-                mainView
-            } else {
+            if !state.configured {
                 SetupView()
+            } else if state.cloudMode {
+                CloudHomeView()
+            } else {
+                mainView
             }
         }
+        .onAppear { state.checkServerReachability() }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
             state.handleBackground()
         }

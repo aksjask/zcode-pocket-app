@@ -48,5 +48,13 @@ struct PocketWebView: UIViewRepresentable {
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
             state.isLoading = false
         }
+
+        /// 主页加载失败（电脑不可达）→ 自动切云端模式
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            state.isLoading = false
+            if !state.cloudMode {
+                state.enterCloudMode()
+            }
+        }
     }
 }

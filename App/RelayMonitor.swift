@@ -23,6 +23,9 @@ final class RelayMonitor: ObservableObject {
     /// 桌面上报的工作区（云派任务的选择列表）
     var workspaces: [OfficialRelay.WorkspaceInfo] { relay.workspaces }
 
+    /// 桌面任务列表（云端模式主页用）
+    var tasks: [OfficialRelay.TaskSummary] { relay.tasks }
+
     var hasLink: Bool { OfficialLinkParser.parse(officialURL) != nil }
 
     private init() {
