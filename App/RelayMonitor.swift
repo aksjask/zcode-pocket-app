@@ -19,6 +19,8 @@ final class RelayMonitor: ObservableObject {
     private var lastStatus: [String: String] = [:]
     /// 只在退后台期间活跃：前台让路给网页自己的官方远控连接（官方限制一路连接，避免互踢）
     private var active = false
+    /// 挂起的重连定时器（去重，防止把已连上的连接踢掉重连）
+    private var reconnectTimer: Timer?
 
     /// 桌面上报的工作区（云派任务的选择列表）
     var workspaces: [OfficialRelay.WorkspaceInfo] { relay.workspaces }
