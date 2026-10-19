@@ -26,6 +26,7 @@ app_files = [
     ("WebView.swift", "App/WebView.swift"),
     ("TaskWatcher.swift", "App/TaskWatcher.swift"),
     ("RelayMonitor.swift", "App/RelayMonitor.swift"),
+    ("RelayComposeView.swift", "App/RelayComposeView.swift"),
     ("LocalNotify.swift", "App/LocalNotify.swift"),
     ("SilentAudio.swift", "App/SilentAudio.swift"),
     ("OfficialRelay.swift", "App/Session/OfficialRelay.swift"),

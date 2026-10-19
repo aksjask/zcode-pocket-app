@@ -20,18 +20,38 @@ final class RelayMonitor: ObservableObject {
     /// 只在退后台期间活跃：前台让路给网页自己的官方远控连接（官方限制一路连接，避免互踢）
     private var active = false
 
+    /// 桌面上报的工作区（云派任务的选择列表）
+    var workspaces: [WorkspaceInfo] { relay.workspaces }
+
     var hasLink: Bool { OfficialLinkParser.parse(officialURL) != nil }
 
     private init() {
         relay.onStateChange = { [weak self] state in
             self?.stateLabel = state.label
+            self?.objectWillChange.send()
             guard let self, self.active else { return }
             if case .idle = state { self.reconnectAfter(3) }
             if case .failed = state { self.reconnectAfter(10) }
         }
         relay.onSnapshot = { [weak self] in
-            self?.diffAndNotify()
+            guard let self else { return }
+            self.objectWillChange.send()
+            self.diffAndNotify()
         }
+    }
+
+    /// 前台临时接管中继（云派任务时用）
+    func activateForDispatch() {
+        active = true
+        if relay.state == .idle, let link = OfficialLinkParser.parse(officialURL) {
+            relay.connect(link)
+        }
+    }
+
+    func refreshWorkspacesPub() {
+        guard relay.state == .paired else { return }
+        relay.refreshWorkspaces()
+        objectWillChange.send()
     }
 
     /// 退后台：接管官方中继连接，开始收任务通知

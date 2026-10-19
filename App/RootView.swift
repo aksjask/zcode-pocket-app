@@ -33,6 +33,16 @@ struct RootView: View {
                         .background(Color.white.opacity(0.08))
                         .clipShape(Capsule())
                 }
+                Button {
+                    state.showRelayCompose = true
+                } label: {
+                    Image(systemName: "cloud.fill")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white.opacity(0.85))
+                        .frame(width: 36, height: 28)
+                        .background(Color.white.opacity(0.08))
+                        .clipShape(Capsule())
+                }
                 Spacer()
                 Button {
                     state.reload()
@@ -55,6 +65,9 @@ struct RootView: View {
         }
         .sheet(isPresented: $state.showSettings) {
             SettingsView()
+        }
+        .sheet(isPresented: $state.showRelayCompose) {
+            RelayComposeView()
         }
     }
 }

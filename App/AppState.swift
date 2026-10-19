@@ -12,6 +12,7 @@ final class AppState: ObservableObject {
     var configured: Bool { AppSettings.isValid }
 
     @Published var showSettings = false
+    @Published var showRelayCompose = false
     @Published var isLoading = false
     weak var webView: WKWebView?
 

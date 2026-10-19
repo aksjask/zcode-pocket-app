@@ -195,6 +195,11 @@ final class OfficialRelay: NSObject, URLSessionWebSocketDelegate {
         Task { await sendTextAsync(text, taskId: taskId) }
     }
 
+    /// 派任务 UI 选择目标工作区（Pocket App 扩展）
+    func useWorkspace(_ key: String?) {
+        activeWorkspaceKey = key
+    }
+
     /// 停止当前任务：下发 abort 会话命令。
     func stopTask(_ taskId: String?) {
         Task {
