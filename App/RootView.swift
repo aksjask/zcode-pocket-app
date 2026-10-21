@@ -27,7 +27,7 @@ struct RootView: View {
             // 固定顶栏（不悬浮在网页上，避免遮挡页面自己的按钮）
             HStack {
                 Button {
-                    state.showSettings = true
+                    state.activeSheet = .settings
                 } label: {
                     Image(systemName: "gearshape")
                         .font(.system(size: 15, weight: .medium))
@@ -37,7 +37,7 @@ struct RootView: View {
                         .clipShape(Capsule())
                 }
                 Button {
-                    state.showRelayCompose = true
+                    state.activeSheet = .relayCompose
                 } label: {
                     Image(systemName: "cloud.fill")
                         .font(.system(size: 14, weight: .medium))
@@ -66,11 +66,11 @@ struct RootView: View {
                     .ignoresSafeArea(edges: .bottom)
             }
         }
-        .sheet(isPresented: $state.showSettings) {
-            SettingsView()
-        }
-        .sheet(isPresented: $state.showRelayCompose) {
-            RelayComposeView()
+        .sheet(item: $state.activeSheet) { sheet in
+            switch sheet {
+            case .settings: SettingsView()
+            case .relayCompose: RelayComposeView()
+            }
         }
     }
 }

@@ -52,6 +52,12 @@ struct CloudHomeView: View {
         .sheet(item: $selected) { t in
             TaskDetailView(task: t)
         }
+        .sheet(item: $state.activeSheet) { sheet in
+            switch sheet {
+            case .settings: SettingsView()
+            case .relayCompose: RelayComposeView()
+            }
+        }
     }
 
     // ---------- 顶部 ----------
@@ -70,9 +76,12 @@ struct CloudHomeView: View {
         .cornerRadius(14)
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(border))
         .overlay(alignment: .topTrailing) {
-            Button("重试电脑") { state.checkServerReachability() }
-                .font(.caption2).foregroundColor(.white.opacity(0.5))
-                .padding(8)
+            HStack(spacing: 12) {
+                Button("设置") { state.activeSheet = .settings }
+                Button("重试电脑") { state.checkServerReachability() }
+            }
+            .font(.caption2).foregroundColor(.white.opacity(0.5))
+            .padding(8)
         }
     }
 

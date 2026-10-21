@@ -2,6 +2,11 @@ import Foundation
 import Combine
 import WebKit
 
+enum AppSheet: String, Identifiable {
+    case settings, relayCompose
+    var id: String { rawValue }
+}
+
 final class AppState: ObservableObject {
     static let shared = AppState()
 
@@ -11,8 +16,7 @@ final class AppState: ObservableObject {
     }
     var configured: Bool { AppSettings.isValid }
 
-    @Published var showSettings = false
-    @Published var showRelayCompose = false
+    @Published var activeSheet: AppSheet?
     @Published var cloudMode = false
     @Published var isLoading = false
     weak var webView: WKWebView?
