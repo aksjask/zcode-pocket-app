@@ -1,6 +1,6 @@
 import SwiftUI
 
-// 云端模式的任务会话页：经中继拉取会话消息，官方深色风格渲染 + 底部 composer 续聊。
+// 云端模式的任务会话页：经中继拉取会话消息，官方深色风格渲染（含 markdown）+ 底部 composer 续聊。
 struct TaskDetailView: View {
     @ObservedObject var mon = RelayMonitor.shared
     let task: TaskSummary
@@ -32,12 +32,10 @@ struct TaskDetailView: View {
                         } else {
                             ScrollViewReader { proxy in
                                 ScrollView {
-                                    VStack(alignment: .leading, spacing: 14) {
+                                    VStack(alignment: .leading, spacing: 16) {
                                         ForEach(msgs) { m in
-                                            ForEach(m.blocks) { b in
-                                                blockView(m, b)
-                                                    .id(b.id)
-                                            }
+                                            messageView(m)
+                                                .id(m.id)
                                         }
                                     }
                                     .padding()
@@ -85,7 +83,218 @@ struct TaskDetailView: View {
         msgs.last?.blocks.last?.id ?? msgs.last?.id ?? "top"
     }
 
-    // 官方 composer：深色圆角容器，上行输入，下行 + 盾牌(橙) … 🧠 + 方块↑
+    // ---------- 消息渲染 ----------
+
+    @ViewBuilder private func messageView(_ m: ChatMessage) -> some View {
+        let blocks = m.blocks.filter { b in
+            !(b.kind == "text" && b.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        if m.isUser {
+            ForEach(blocks) { b in
+                HStack(alignment: .top) {
+                    Spacer(minLength: 52)
+                    Text(b.text)
+                        .font(.subheadline)
+                        .foregroundColor(.white)
+                        .padding(10)
+                        .background(Color(red: 0.16, green: 0.19, blue: 0.27))
+                        .cornerRadius(12)
+                }
+            }
+        } else {
+            ForEach(blocks) { b in
+                switch b.kind {
+                case "text":
+                    assistantBody(b.text)
+                case "tool":
+                    toolRow(b)
+                default:
+                    EmptyView()
+                }
+            }
+        }
+    }
+
+    private func toolRow(_ b: ChatBlock) -> some View {
+        let info = toolInfo(b.tool)
+        return HStack(spacing: 6) {
+            Image(systemName: info.icon).font(.caption)
+            Text(info.label).font(.caption)
+            if !b.text.isEmpty {
+                Text(b.text).font(.caption).lineLimit(1).foregroundColor(.white.opacity(0.3))
+            } else if let p = b.path, !p.isEmpty {
+                Text(p).font(.caption2).lineLimit(1).foregroundColor(.white.opacity(0.35))
+            }
+        }
+        .foregroundColor(.white.opacity(0.42))
+        .padding(.vertical, 2)
+    }
+
+    private func toolInfo(_ tool: String?) -> (icon: String, label: String) {
+        switch tool ?? "" {
+        case "Bash": return ("terminal", "终端")
+        case "Write": return ("square.and.pencil", "写入")
+        case "Edit": return ("pencil", "编辑")
+        case "Read": return ("magnifyingglass", "查阅")
+        case "TaskOutput": return ("tray.and.arrow.down", "输出")
+        case "TodoWrite": return ("checklist", "清单")
+        case "Glob": return ("folder", "找文件")
+        case "Grep": return ("text.magnifyingglass", "搜索")
+        default:
+            let t = tool ?? "工具"
+            return ("wrench.and.screwdriver", t)
+        }
+    }
+
+    // ---------- 轻量 markdown 渲染 ----------
+
+    private enum MRow {
+        case header(String, Int)   // 文本, 级别
+        case text(String)          // 普通段（内联 markdown）
+        case bullet(String)        // 无序列表项
+        case numbered(String, String) // 序号, 内容
+        case code(String)          // 代码块
+        case table([String])       // 表格行
+        case blank
+    }
+
+    private func parseRows(_ text: String) -> [MRow] {
+        var rows: [MRow] = []
+        var inCode = false
+        var codeBuf: [String] = []
+        var paraBuf: [String] = []
+        var tableBuf: [String] = []
+
+        func flushPara() {
+            guard !paraBuf.isEmpty else { return }
+            rows.append(.text(paraBuf.joined(separator: "\n")))
+            paraBuf = []
+        }
+        func flushTable() {
+            guard !tableBuf.isEmpty else { return }
+            rows.append(.table(tableBuf))
+            tableBuf = []
+        }
+        func flushCode() {
+            guard !codeBuf.isEmpty else { return }
+            rows.append(.code(codeBuf.joined(separator: "\n")))
+            codeBuf = []
+        }
+
+        for raw in text.components(separatedBy: "\n") {
+            let t = raw.trimmingCharacters(in: .whitespaces)
+            if t.hasPrefix("```") {
+                flushPara(); flushTable()
+                if inCode { flushCode(); inCode = false } else { inCode = true }
+                continue
+            }
+            if inCode { codeBuf.append(raw); continue }
+            if t.hasPrefix("|") {
+                flushPara()
+                // 跳过分隔行 |---|---|
+                if t.range(of: #"^\|[\s\-:|]+\|?$"#, options: .regularExpression) != nil { continue }
+                let cells = t.dropFirst().dropLast().components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+                tableBuf.append(cells.joined(separator: "   "))
+                continue
+            }
+            flushTable()
+            if t.isEmpty {
+                flushPara()
+                rows.append(.blank)
+                continue
+            }
+            if t.hasPrefix("####") { flushPara(); rows.append(.header(String(t.dropFirst(4)).trimmingCharacters(in: .whitespaces), 4)); continue }
+            if t.hasPrefix("###") { flushPara(); rows.append(.header(String(t.dropFirst(3)).trimmingCharacters(in: .whitespaces), 3)); continue }
+            if t.hasPrefix("##") { flushPara(); rows.append(.header(String(t.dropFirst(2)).trimmingCharacters(in: .whitespaces), 2)); continue }
+            if t.hasPrefix("#") { flushPara(); rows.append(.header(String(t.dropFirst()).trimmingCharacters(in: .whitespaces), 1)); continue }
+            if t.hasPrefix("- ") || t.hasPrefix("* ") || t.hasPrefix("• ") {
+                flushPara()
+                rows.append(.bullet(String(t.dropFirst(2))))
+                continue
+            }
+            if let r = t.range(of: #"^\d{1,2}[\.、] "#, options: .regularExpression) {
+                flushPara()
+                rows.append(.numbered(String(t[...r.upperBound]).trimmingCharacters(in: .whitespaces), String(t[r.upperBound...])))
+                continue
+            }
+            paraBuf.append(t)
+        }
+        flushPara(); flushTable(); flushCode()
+        return rows
+    }
+
+    @ViewBuilder private func rowView(_ row: MRow) -> some View {
+        switch row {
+        case .header(let text, let level):
+            inlineText(text)
+                .font(.system(size: level <= 1 ? 19 : level == 2 ? 17 : 15.5, weight: .bold))
+                .foregroundColor(.white)
+                .padding(.top, 4)
+        case .text(let text):
+            inlineText(text)
+        case .bullet(let text):
+            HStack(alignment: .top, spacing: 7) {
+                Text("•").foregroundColor(.white.opacity(0.65)).font(.subheadline)
+                inlineText(text).font(.system(size: 15.5))
+            }
+        case .numbered(let num, let text):
+            HStack(alignment: .top, spacing: 7) {
+                Text(num).foregroundColor(.white.opacity(0.65)).font(.subheadline)
+                inlineText(text).font(.system(size: 15.5))
+            }
+        case .code(let code):
+            Text(code)
+                .font(.system(size: 12.5, design: .monospaced))
+                .foregroundColor(Color(white: 0.85))
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(red: 0.08, green: 0.08, blue: 0.1))
+                .cornerRadius(10)
+        case .table(let cells):
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(cells.enumerated()), id: \.offset) { _, c in
+                    inlineText(c).font(.system(size: 13, design: .monospaced)).foregroundColor(.white.opacity(0.85))
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(red: 0.08, green: 0.08, blue: 0.1))
+            .cornerRadius(10)
+        case .blank:
+            Spacer().frame(height: 4)
+        }
+    }
+
+    /// 单行内联 markdown（**加粗** `代码` [链接]）走系统 AttributedString 解析
+    @ViewBuilder private func inlineText(_ s: String) -> some View {
+        let nonEmpty = s.isEmpty ? " " : s
+        if let attr = try? AttributedString(
+            markdown: nonEmpty,
+            options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        ) {
+            Text(attr)
+                .font(.system(size: 15.5))
+                .foregroundColor(Color(white: 0.92))
+                .lineSpacing(4)
+        } else {
+            Text(nonEmpty)
+                .font(.system(size: 15.5))
+                .foregroundColor(Color(white: 0.92))
+                .lineSpacing(4)
+        }
+    }
+
+    private func assistantBody(_ text: String) -> some View {
+        let rows = parseRows(text)
+        return VStack(alignment: .leading, spacing: 7) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                rowView(row)
+            }
+        }
+    }
+
+    // ---------- 底部 composer（官方风格） ----------
+
     private var composer: some View {
         VStack(alignment: .leading, spacing: 10) {
             TextField("提出后续修改要求", text: $prompt, axis: .vertical)
@@ -138,59 +347,5 @@ struct TaskDetailView: View {
             sending = false
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { mon.loadMessages(task.id) }
-    }
-
-    // 消息块：assistant 白字正文；user 右侧气泡；tool 暗灰活动行
-    @ViewBuilder private func blockView(_ m: ChatMessage, _ b: ChatBlock) -> some View {
-        switch b.kind {
-        case "text":
-            if m.isUser {
-                HStack(alignment: .top) {
-                    Spacer(minLength: 52)
-                    Text(b.text)
-                        .font(.subheadline)
-                        .foregroundColor(.white)
-                        .padding(10)
-                        .background(Color(red: 0.16, green: 0.19, blue: 0.27))
-                        .cornerRadius(12)
-                }
-            } else {
-                Text(b.text)
-                    .font(.system(size: 15.5))
-                    .foregroundColor(Color(white: 0.92))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        case "tool":
-            toolRow(b)
-        default:
-            EmptyView()
-        }
-    }
-
-    private func toolRow(_ b: ChatBlock) -> some View {
-        let info = toolInfo(b.tool)
-        return HStack(spacing: 6) {
-            Image(systemName: info.icon).font(.caption)
-            Text(info.label).font(.caption)
-            if let p = b.path, !p.isEmpty {
-                Text(p).font(.caption2).lineLimit(1).foregroundColor(.white.opacity(0.35))
-            }
-        }
-        .foregroundColor(.white.opacity(0.42))
-        .padding(.vertical, 2)
-    }
-
-    private func toolInfo(_ tool: String?) -> (icon: String, label: String) {
-        switch tool ?? "" {
-        case "Bash": return ("terminal", "终端")
-        case "Write": return ("square.and.pencil", "写入")
-        case "Edit": return ("pencil", "编辑")
-        case "Read": return ("magnifyingglass", "查阅")
-        case "TaskOutput": return ("tray.and.arrow.down", "输出")
-        case "TodoWrite": return ("checklist", "清单")
-        default:
-            let t = tool ?? "工具"
-            return ("wrench.and.screwdriver", t)
-        }
     }
 }
