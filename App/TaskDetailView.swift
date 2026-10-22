@@ -7,6 +7,7 @@ struct TaskDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var prompt = ""
     @State private var sending = false
+    @State private var refreshTimer: Timer?
 
     private let bg = Color.black
     private let composerBg = Color(red: 0.10, green: 0.10, blue: 0.12)
@@ -74,8 +75,15 @@ struct TaskDetailView: View {
         .onAppear {
             mon.activateForDispatch()
             mon.loadMessages(task.id)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { mon.loadMessages(task.id) }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 10) { mon.loadMessages(task.id) }
+            // 详情页打开期间持续自动拉新（桌面回复实时进来）
+            refreshTimer?.invalidate()
+            refreshTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak mon] _ in
+                mon?.loadMessages(task.id)
+            }
+        }
+        .onDisappear {
+            refreshTimer?.invalidate()
+            refreshTimer = nil
         }
     }
 
