@@ -9,6 +9,8 @@ struct RootView: View {
                 SetupView()
             } else if state.cloudMode {
                 CloudHomeView()
+                    .onAppear { state.enterCloudMode() }
+                    .onDisappear { if !state.cloudMode { state.checkServerReachability() } }
             } else {
                 mainView
             }
@@ -128,6 +130,29 @@ struct SettingsView: View {
     @State private var input = AppSettings.serverURL
     @State private var officialInput = RelayMonitor.shared.officialURL
     @State private var msg = ""
+    @State private var storageRows: [(String, String)] = []
+
+    private func dirSizeMB(_ path: String) -> String {
+        let fm = FileManager.default
+        var total: Int64 = 0
+        if let en = fm.enumerator(at: URL(fileURLWithPath: path), includingPropertiesForKeys: [.fileSizeKey]) {
+            for case let f as URL in en {
+                let v = try? f.resourceValues(forKeys: [.fileSizeKey])
+                total += Int64(v?.fileSize ?? 0)
+            }
+        }
+        return String(format: "%.1f MB", Double(total) / 1_048_576)
+    }
+
+    private func computeStorage() {
+        DispatchQueue.global(qos: .utility).async {
+            let bundle = dirSizeMB(Bundle.main.bundlePath)
+            let data = dirSizeMB(NSHomeDirectory())
+            DispatchQueue.main.async {
+                storageRows = [("App 本体（安装包展开）", bundle), ("数据与缓存（Documents+Library 等）", data)]
+            }
+        }
+    }
 
     var body: some View {
         NavigationView {
@@ -176,6 +201,31 @@ struct SettingsView: View {
                     Text("退到后台后：Pocket 地址可达时轮询本机任务（20 秒）；官方远控配对后走 ZCode 云中继收桌面任务。完成/出错弹系统横幅，点通知直达会话。")
                         .font(.footnote)
                         .foregroundColor(.secondary)
+                }
+                Section("存储") {
+                    if storageRows.isEmpty {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("统计中…").font(.footnote).foregroundColor(.secondary)
+                        }
+                    } else {
+                        ForEach(storageRows, id: \.0) { row in
+                            HStack {
+                                Text(row.0).font(.subheadline)
+                                Spacer()
+                                Text(row.1).font(.subheadline).foregroundColor(.secondary).monospacedDigit()
+                            }
+                        }
+                    }
+                    HStack {
+                        Text("会话缓存（内存）").font(.subheadline)
+                        Spacer()
+                        Text("\(relayMon.messages.values.reduce(0) { $0 + $1.count }) 条消息").font(.subheadline).foregroundColor(.secondary).monospacedDigit()
+                    }
+                    Button("重新统计") {
+                        storageRows = []
+                        computeStorage()
+                    }
                 }
                 Section {
                     Button("清除全部配置", role: .destructive) {

@@ -33,7 +33,7 @@ struct TaskDetailView: View {
                         } else {
                             ScrollViewReader { proxy in
                                 ScrollView {
-                                    VStack(alignment: .leading, spacing: 16) {
+                                    VStack(alignment: .leading, spacing: 14) {
                                         ForEach(msgs) { m in
                                             messageView(m)
                                                 .id(m.id)
@@ -42,11 +42,15 @@ struct TaskDetailView: View {
                                     .padding()
                                 }
                                 .onChange(of: mon.messages) { _ in
-                                    withAnimation { proxy.scrollTo(lastId(msgs), anchor: .bottom) }
+                                    scrollToBottom(proxy, msgs: msgs)
                                 }
                                 .onAppear {
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                                        proxy.scrollTo(lastId(msgs), anchor: .bottom)
+                                    scrollToBottom(proxy, msgs: msgs)
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                        scrollToBottom(proxy, msgs: msgs)
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                        scrollToBottom(proxy, msgs: msgs)
                                     }
                                 }
                             }
@@ -89,6 +93,17 @@ struct TaskDetailView: View {
 
     private func lastId(_ msgs: [ChatMessage]) -> String {
         msgs.last?.blocks.last?.id ?? msgs.last?.id ?? "top"
+    }
+
+    /// 稳妥滚底：立即 + 延迟双保险（等内容完成布局）
+    private func scrollToBottom(_ proxy: ScrollViewProxy, msgs: [ChatMessage]) {
+        let id = lastId(msgs)
+        DispatchQueue.main.async {
+            withAnimation { proxy.scrollTo(id, anchor: .bottom) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                proxy.scrollTo(id, anchor: .bottom)
+            }
+        }
     }
 
     // ---------- 消息渲染 ----------
