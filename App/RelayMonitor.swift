@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import Combine
 
 // 官方中继监控：把 ZCodeMobile 的 relay 接到本地通知上。
 // 配对一次（粘贴/扫官方远控链接），后台走 zcode.z.ai 云中继收任务状态，
@@ -21,6 +22,7 @@ final class RelayMonitor: ObservableObject {
     private var active = false
     /// 挂起的重连定时器（去重，防止把已连上的连接踢掉重连）
     private var reconnectTimer: Timer?
+    private var loginCancellable: AnyCancellable?
 
     /// 桌面上报的工作区（云派任务的选择列表）
     var workspaces: [OfficialRelay.WorkspaceInfo] { relay.workspaces }
@@ -55,6 +57,14 @@ final class RelayMonitor: ObservableObject {
             self?.messages[taskId] = msgs
             self?.objectWillChange.send()
         }
+        // 账号登录成功后自动恢复连接（新版桌面 V2 配对缺登录时会失败挂起）
+        loginCancellable = ZaiAccount.shared.$loginPhase
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] phase in
+                guard let self, case .done = phase, self.active, self.hasLink else { return }
+                if case .idle = self.relay.state { self.reconnectAfter(0.5) }
+                if case .failed = self.relay.state { self.reconnectAfter(0.5) }
+            }
     }
 
     /// 拉取某任务的会话消息（结果走 onMessages 回调）
@@ -109,6 +119,10 @@ final class RelayMonitor: ObservableObject {
         reconnectTimer?.invalidate()
         reconnectTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
             guard let self, self.active, self.hasLink else { return }
+            // V2 未登录时不自动重试（失败文案会引导去设置登录；登录成功由 loginCancellable 触发重连）
+            if let link = OfficialLinkParser.parse(self.officialURL), link.isV2, !ZaiAccount.shared.isLoggedIn {
+                return
+            }
             switch self.relay.state {
             case .idle, .failed:
                 if let link = OfficialLinkParser.parse(self.officialURL) {

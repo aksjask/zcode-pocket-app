@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct RootView: View {
     @EnvironmentObject var state: AppState
@@ -126,9 +127,11 @@ struct SetupView: View {
 struct SettingsView: View {
     @EnvironmentObject var state: AppState
     @ObservedObject var relayMon = RelayMonitor.shared
+    @ObservedObject var account = ZaiAccount.shared
     @Environment(\.dismiss) private var dismiss
     @State private var input = AppSettings.serverURL
     @State private var officialInput = RelayMonitor.shared.officialURL
+    @State private var loginProvider = UserDefaults.standard.string(forKey: "officialLoginProvider") ?? "bigmodel"
     @State private var msg = ""
     @State private var storageRows: [(String, String)] = []
 
@@ -194,8 +197,48 @@ struct SettingsView: View {
                             relayMon.disconnectAll()
                         }
                     }
-                    Text("在电脑 ZCode 开「远程控制」，复制链接粘到这里。保存后 App 退到后台会自动通过 ZCode 官方云接收任务通知，任何网络可用。")
+                    Text("在电脑 ZCode 开「远程控制」，复制链接粘到这里。保存后 App 退到后台会自动通过 ZCode 官方云接收任务通知，任何网络可用。桌面 3.16+ 的链接需要先在下方登录账号。")
                         .font(.footnote).foregroundColor(.secondary)
+                }
+                Section("官方云账号（桌面 3.16+ 配对）") {
+                    Picker("登录方式", selection: $loginProvider) {
+                        Text("BigModel（智谱）").tag("bigmodel")
+                        Text("z.ai").tag("zai")
+                    }
+                    .onChange(of: loginProvider) { newValue in
+                        UserDefaults.standard.set(newValue, forKey: "officialLoginProvider")
+                    }
+                    switch account.loginPhase {
+                    case .done:
+                        Label("已登录：\(account.userLabel ?? "账号")", systemImage: "checkmark.shield")
+                            .font(.subheadline).foregroundColor(.green)
+                    case .awaiting:
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text("等待浏览器授权完成…").font(.subheadline).foregroundColor(.secondary)
+                            Spacer()
+                            if let url = account.authorizeURL {
+                                Button("打开授权页") { UIApplication.shared.open(url) }
+                                    .font(.footnote)
+                            }
+                        }
+                        Button("取消登录") { account.cancelLogin() }
+                            .font(.footnote).foregroundColor(.secondary)
+                    case .failed(let reason):
+                        Text("登录未完成：\(reason)").font(.subheadline).foregroundColor(.red)
+                        Button("重试登录") { account.startLogin(provider: loginProvider) }
+                    case .idle:
+                        Text("未登录。新版桌面端（≥3.16）的远控链接改用账号配对：需在此登录与电脑相同的账号。")
+                            .font(.footnote).foregroundColor(.secondary)
+                        Button {
+                            account.startLogin(provider: loginProvider)
+                        } label: {
+                            Label("登录账号", systemImage: "person.badge.key.fill")
+                        }
+                    }
+                    if account.isLoggedIn {
+                        Button("退出登录", role: .destructive) { account.logout() }
+                    }
                 }
                 Section("后台通知") {
                     Text("退到后台后：Pocket 地址可达时轮询本机任务（20 秒）；官方远控配对后走 ZCode 云中继收桌面任务。完成/出错弹系统横幅，点通知直达会话。")

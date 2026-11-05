@@ -1,5 +1,10 @@
 import Foundation
 
+/// 上报给桌面端/协议层的应用版本号，与 Info.plist 的 CFBundleShortVersionString 保持一致
+enum AppVersion {
+    static let current = "1.1.0"
+}
+
 /// rpc-frame 接收侧多片组装：官方对超过 1MB 的消息会分片发送。
 final class RpcFrameAssembler {
     private struct Partial {
@@ -104,6 +109,8 @@ final class OfficialRelay: NSObject, URLSessionWebSocketDelegate {
     private var session: URLSession!
     private var socket: URLSessionWebSocketTask?
     private var heartbeat: Timer?
+    /// 连接代际：V2 令牌是异步取的，作废旧的取令牌任务用
+    private var connectGeneration = 0
     private var requestCounter = 0
     private var pending: [String: (Bool, [String: Any]) -> Void] = [:]
     private var identity: BridgeIdentity?
@@ -155,6 +162,40 @@ final class OfficialRelay: NSObject, URLSessionWebSocketDelegate {
             return
         }
         set(.connecting)
+        if link.isV2 {
+            // 新版桌面账号令牌配对：终端令牌 60 秒有效，每次连接前现取
+            let generation = connectGeneration
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    let token = try await ZaiAccount.shared.terminalToken()
+                    await MainActor.run {
+                        guard generation == self.connectGeneration,
+                              self.link == link, !self.intentionallyClosed else { return }
+                        var comps = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+                        var items = comps.queryItems ?? []
+                        items.append(URLQueryItem(name: "token", value: token))
+                        comps.queryItems = items
+                        guard let v2url = comps.url else {
+                            self.set(.failed("远控地址无效"))
+                            return
+                        }
+                        self.openSocket(v2url)
+                    }
+                } catch {
+                    await MainActor.run {
+                        guard generation == self.connectGeneration,
+                              !self.intentionallyClosed else { return }
+                        self.set(.failed(error.localizedDescription))
+                    }
+                }
+            }
+        } else {
+            openSocket(url)
+        }
+    }
+
+    private func openSocket(_ url: URL) {
         let task = session.webSocketTask(with: url)
         socket = task
         task.resume()
@@ -163,6 +204,7 @@ final class OfficialRelay: NSObject, URLSessionWebSocketDelegate {
 
     func disconnect() {
         intentionallyClosed = true
+        connectGeneration += 1
         heartbeat?.invalidate()
         heartbeat = nil
         socket?.cancel(with: .goingAway, reason: nil)
@@ -330,17 +372,19 @@ final class OfficialRelay: NSObject, URLSessionWebSocketDelegate {
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol proto: String?) {
         guard let link else { return }
         set(.authenticating)
-        sendJSON([
+        var initMsg: [String: Any] = [
             "type": "auth_init",
-            "role": "terminal",
             "device_sid": link.deviceSid,
             "meta": [
                 "platform": "ios",
-                "version": "1.0.0",
+                "version": AppVersion.current,
                 "name": "ZCode Mobile"
             ],
             "client_ts": nowMs()
-        ])
+        ]
+        // V2 严格 schema 的 auth_init 不带 role：终端身份由 URL 里的账号令牌承载
+        if !link.isV2 { initMsg["role"] = "terminal" }
+        sendJSON(initMsg)
     }
 
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
@@ -407,6 +451,12 @@ final class OfficialRelay: NSObject, URLSessionWebSocketDelegate {
             let message = json["message"] as? String ?? code
             if code == "KICKED" {
                 set(.failed("这个链接已被其他页面占用，关掉旧页面后重新扫码"))
+            } else if code == "AUTH_FAILED" {
+                set(.failed("账号校验失败：请确认手机已登录与电脑相同的 z.ai / BigModel 账号（设置里可重新登录）"))
+            } else if code == "DEVICE_OFFLINE" {
+                set(.failed("桌面端不在线：请在电脑 ZCode 开启远程控制并保持登录"))
+            } else if code == "WRONG_PARAM" {
+                set(.failed("远控参数无效：请重新复制电脑端连接链接"))
             } else {
                 set(.failed(message.isEmpty ? "远控连接失败" : message))
             }
@@ -566,7 +616,7 @@ final class OfficialRelay: NSObject, URLSessionWebSocketDelegate {
             "protocolVersion": 3,
             "clientId": clientId,
             "clientKind": "web",
-            "appVersion": "1.0.0",
+            "appVersion": AppVersion.current,
             "capabilities": ["workspaceHookReviewUi": true]
         ]])
         helloReady = true
@@ -789,7 +839,7 @@ final class OfficialRelay: NSObject, URLSessionWebSocketDelegate {
             "viewState": view,
             "deviceInfo": [
                 "platform": "ios",
-                "appVersion": "1.0.0",
+                "appVersion": AppVersion.current,
                 "name": "ZCode Mobile"
             ]
         ])

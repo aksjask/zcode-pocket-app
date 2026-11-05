@@ -34,6 +34,7 @@ app_files = [
     ("OfficialRelay.swift", "App/Session/OfficialRelay.swift"),
     ("RpcFrame.swift", "App/Session/RpcFrame.swift"),
     ("OfficialLink.swift", "App/Session/OfficialLink.swift"),
+    ("ZaiAccount.swift", "App/Session/ZaiAccount.swift"),
     ("Models.swift", "App/Session/Models.swift"),
     ("VSCodeIPC.swift", "App/Session/VSCodeIPC.swift"),
 ]
@@ -51,6 +52,7 @@ fw = {
     "UserNotifications": uid(),
     "AVFoundation": uid(),
     "CryptoKit": uid(),
+    "Security": uid(),
 }
 fw_build = {k: uid() for k in fw}
 
