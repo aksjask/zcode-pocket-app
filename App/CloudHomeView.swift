@@ -5,7 +5,7 @@ import SwiftUI
 struct CloudHomeView: View {
     @EnvironmentObject var state: AppState
     @ObservedObject var mon = RelayMonitor.shared
-    @AppStorage("zp_cloudview") private var viewMode = "group"
+    @AppStorage("zp_cloudview2") private var viewMode = "project"
     @State private var prompt = ""
     @State private var wsKey: String?
     @State private var sentTip = ""
@@ -98,8 +98,8 @@ struct CloudHomeView: View {
 
     private var viewToggle: some View {
         HStack(spacing: 8) {
-            toggleBtn("# 分组", "group")
-            toggleBtn("📁 项目", "project")
+            toggleBtn("📁 按项目", "project")
+            toggleBtn("⏱ 全部任务", "group")
             Spacer()
         }
     }
