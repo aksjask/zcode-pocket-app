@@ -79,9 +79,9 @@ struct TaskDetailView: View {
         .onAppear {
             mon.activateForDispatch()
             mon.loadMessages(task.id)
-            // 详情页打开期间持续自动拉新（桌面回复实时进来）
+            // 订阅已实时推送增量，轮询只作断线兜底，15 秒一次足够
             refreshTimer?.invalidate()
-            refreshTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak mon] _ in
+            refreshTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak mon] _ in
                 mon?.loadMessages(task.id)
             }
         }

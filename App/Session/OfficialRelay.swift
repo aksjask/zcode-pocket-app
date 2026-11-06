@@ -2,7 +2,7 @@ import Foundation
 
 /// 上报给桌面端/协议层的应用版本号，与 Info.plist 的 CFBundleShortVersionString 保持一致
 enum AppVersion {
-    static let current = "1.1.4"
+    static let current = "1.1.5"
 }
 
 /// rpc-frame 接收侧多片组装：官方对超过 1MB 的消息会分片发送。
@@ -109,6 +109,8 @@ final class OfficialRelay: NSObject, URLSessionWebSocketDelegate {
     private var session: URLSession!
     private var socket: URLSessionWebSocketTask?
     private var heartbeat: Timer?
+    /// 最近一次收到 pair 层响应的时间（心跳死链检测用）
+    private var lastPairAckAt: TimeInterval = 0
     /// 连接代际：V2 令牌是异步取的，作废旧的取令牌任务用
     private var connectGeneration = 0
     private var requestCounter = 0
@@ -441,6 +443,8 @@ final class OfficialRelay: NSObject, URLSessionWebSocketDelegate {
                 "client_ts": nowMs()
             ])
         case "auth_ack", "pair_status_ack":
+            // 任何 pair 层响应都算心跳回包，用于死链检测
+            lastPairAckAt = Date().timeIntervalSince1970
             applyPairStatus(json["pair_status"] as? String)
         case "data":
             if let payload = json["payload"] as? [String: Any] {
@@ -865,6 +869,11 @@ final class OfficialRelay: NSObject, URLSessionWebSocketDelegate {
         var payload: [String: Any] = extra
         payload["zcode_type"] = type
         payload["requestId"] = requestId
+        // 15 秒无响应按失败回收，防止 handler 泄漏、bridge-open 卡死在 openingBridge=true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
+            guard let self, let callback = self.pending.removeValue(forKey: requestId) else { return }
+            callback(false, ["error": "请求超时（桌面端 15 秒无响应）"])
+        }
         sendPayload(payload)
     }
 
@@ -900,13 +909,14 @@ final class OfficialRelay: NSObject, URLSessionWebSocketDelegate {
                 let items = snap["tasks"] as? [[String: Any]] ?? []
                 var updated: [TaskSummary] = []
                 for item in items {
+                    // 归档任务与桌面端时间线语义一致，不在列表展示
+                    if ((item["membership"] as? [String: Any])?["archived"] as? Bool) == true { continue }
                     if let summary = Self.taskSummary(fromRow: item) { updated.append(summary) }
                 }
-                if !updated.isEmpty {
-                    updated.sort { $0.updatedAt > $1.updatedAt }
-                    tasks = updated
-                    onSnapshot?()
-                }
+                // 空快照也要生效：所有任务被删/归档后列表应清空，不能残留
+                updated.sort { $0.updatedAt > $1.updatedAt }
+                tasks = updated
+                onSnapshot?()
             } else if topic == "controller/workspaces" {
                 let items = snap["workspaces"] as? [[String: Any]] ?? []
                 let parsed = Self.parseWorkspaces(items)
@@ -928,6 +938,32 @@ final class OfficialRelay: NSObject, URLSessionWebSocketDelegate {
             applyConversationDeltas(deltas)
         } else if topic == "controller/tasks-index" {
             applyTaskDeltas(deltas)
+        }
+    }
+
+    /// 流式输出时 delta 频率极高，全量重建每帧都跑会卡；
+    /// 250ms 节流：首帧立即上屏，期间的增量合并到下一帧。
+    private var pendingRebuild = false
+    private var lastRebuildAt: TimeInterval = 0
+
+    private func rebuildLiveMessagesThrottled() {
+        let now = Date().timeIntervalSince1970
+        guard now - lastRebuildAt >= 0.25 else {
+            scheduleDelayedRebuild()
+            return
+        }
+        lastRebuildAt = now
+        rebuildLiveMessages()
+    }
+
+    private func scheduleDelayedRebuild() {
+        guard !pendingRebuild else { return }
+        pendingRebuild = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self else { return }
+            self.pendingRebuild = false
+            self.lastRebuildAt = Date().timeIntervalSince1970
+            self.rebuildLiveMessages()
         }
     }
 
@@ -961,32 +997,41 @@ final class OfficialRelay: NSObject, URLSessionWebSocketDelegate {
                 break
             }
         }
-        rebuildLiveMessages()
+        rebuildLiveMessagesThrottled()
     }
 
     private func rebuildLiveMessages() {
         guard let sid = liveSessionId else { return }
         let rows = liveRows.keys.sorted().compactMap { liveRows[$0] }
         let messages = Self.parseMessages(rows)
-        onMessages?(sid, messages)
+        DispatchQueue.main.async { self.onMessages?(sid, messages) }
     }
 
     /// 任务实时状态：跑增量更新任务列表（通知靠这里，不再轮询）。
+    /// task.upserted 之外的操作（如 task.removed）在 delta 顶层带 address，按地址删除。
     private func applyTaskDeltas(_ deltas: [[String: Any]]) {
         var updated = tasks
         var changed = false
         for d in deltas {
-            guard (d["op"] as? String) == "task.upserted",
-                  let task = d["task"] as? [String: Any],
-                  let summary = Self.taskSummary(fromRow: task)
-            else { continue }
-            let id = summary.id
-            if let idx = updated.firstIndex(where: { $0.id == id }) {
-                updated[idx] = summary
-            } else {
-                updated.insert(summary, at: 0)
+            let op = d["op"] as? String ?? ""
+            if op == "task.upserted",
+               let task = d["task"] as? [String: Any],
+               let summary = Self.taskSummary(fromRow: task) {
+                let archived = ((task["membership"] as? [String: Any])?["archived"] as? Bool) ?? false
+                if let idx = updated.firstIndex(where: { $0.id == summary.id }) {
+                    if archived { updated.remove(at: idx) } else { updated[idx] = summary }
+                } else if !archived {
+                    updated.insert(summary, at: 0)
+                }
+                changed = true
+            } else if let address = d["address"] as? [String: Any],
+                      let id = address["taskId"] as? String {
+                // task.removed 等：从列表移除
+                if let idx = updated.firstIndex(where: { $0.id == id }) {
+                    updated.remove(at: idx)
+                }
+                changed = true
             }
-            changed = true
         }
         if changed {
             updated.sort { $0.updatedAt > $1.updatedAt }
@@ -1033,8 +1078,17 @@ final class OfficialRelay: NSObject, URLSessionWebSocketDelegate {
 
     private func startHeartbeat() {
         heartbeat?.invalidate()
+        lastPairAckAt = Date().timeIntervalSince1970
         heartbeat = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
             guard let self, let link = self.link else { return }
+            // 死链检测：已配对/等待状态下 30 秒没收到任何 pair 层响应，
+            // 说明 TCP 已半开（桌面断电/网络切换），主动断开触发上层重连
+            if self.state == .paired || self.state == .waiting {
+                if Date().timeIntervalSince1970 - self.lastPairAckAt > 30 {
+                    self.socket?.cancel(with: .abnormalClosure, reason: nil)
+                    return
+                }
+            }
             self.sendJSON([
                 "type": "pair_status_query",
                 "device_sid": link.deviceSid,

@@ -26,4 +26,16 @@ enum AppSettings {
         comps.queryItems = (comps.queryItems ?? []) + [URLQueryItem(name: "token", value: token)]
         return comps.string ?? ""
     }
+
+    // ---- Bark 双保险 ----
+
+    static var barkEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: "pocket.barkEnabled") }
+        set { UserDefaults.standard.set(newValue, forKey: "pocket.barkEnabled") }
+    }
+
+    static var barkURL: String {
+        get { UserDefaults.standard.string(forKey: "pocket.barkURL") ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: "pocket.barkURL") }
+    }
 }

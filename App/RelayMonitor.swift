@@ -45,6 +45,8 @@ final class RelayMonitor: ObservableObject {
 
     /// 会话消息缓存（taskId → 消息流），任务详情页用
     @Published var messages: [String: [ChatMessage]] = [:]
+    /// 最近一次派任务/发消息失败原因（nil = 正常），云派页据此提示
+    @Published var lastSendError: String?
 
     var hasLink: Bool { OfficialLinkParser.parse(officialURL) != nil }
 
@@ -69,6 +71,11 @@ final class RelayMonitor: ObservableObject {
         relay.onMessages = { [weak self] taskId, msgs in
             self?.messages[taskId] = msgs
             self?.objectWillChange.send()
+        }
+        // 派任务/发消息失败不再静默：云派页与详情页都能据此提示
+        relay.onSendResult = { [weak self] ok, error in
+            guard let self else { return }
+            self.lastSendError = ok ? nil : (error ?? "发送失败")
         }
         // 账号登录成功后自动恢复连接（新版桌面 V2 配对缺登录时会失败挂起）
         loginCancellable = ZaiAccount.shared.$loginPhase
@@ -161,9 +168,26 @@ final class RelayMonitor: ObservableObject {
             guard fresh else { continue }
             if task.status == "completed" {
                 LocalNotify.fire(title: "✅ 任务完成", body: task.title, taskId: task.id)
+                pushBark(title: "✅ 任务完成", body: task.title)
             } else {
                 LocalNotify.fire(title: "❌ 任务出错", body: task.title, taskId: task.id)
+                pushBark(title: "❌ 任务出错", body: task.title)
             }
         }
+    }
+
+    /// Bark 双保险：App 进程被杀时系统通知不可靠，经 Bark 服务器再推一份
+    private func pushBark(title: String, body: String) {
+        guard AppSettings.barkEnabled else { return }
+        var base = AppSettings.barkURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard base.lowercased().hasPrefix("http") else { return }
+        if base.hasSuffix("/") { base.removeLast() }
+        let enc = { (s: String) -> String in
+            s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
+        }
+        guard let url = URL(string: "\(base)/\(enc(title))/\(enc(body))?group=Pocket") else { return }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 8
+        URLSession.shared.dataTask(with: req) { _, _, _ in }.resume()
     }
 }

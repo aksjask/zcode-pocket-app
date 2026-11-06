@@ -13,6 +13,7 @@ struct CloudHomeView: View {
     @State private var selected: TaskSummary?
     @State private var inlineComposeFor: String?
     @State private var sending = false
+    @State private var sendError: String?
 
     private var sortedTasks: [TaskSummary] {
         let pin = mon.tasks.filter { $0.pinned }.sorted { $0.updatedAt > $1.updatedAt }
@@ -48,6 +49,14 @@ struct CloudHomeView: View {
         .onAppear {
             mon.activateForDispatch()
             mon.refreshWorkspacesPub()
+        }
+        .onReceive(mon.$lastSendError) { error in
+            // 派任务失败不再静默（此前 sending 固定 2.5 秒后恢复且显示已派出）
+            if let error {
+                sentTip = ""
+                sendError = error
+                sending = false
+            }
         }
         .sheet(item: $selected) { t in
             TaskDetailView(task: t)
@@ -142,7 +151,9 @@ struct CloudHomeView: View {
                     .cornerRadius(8)
                 }
                 Spacer()
-                if !sentTip.isEmpty {
+                if let sendError {
+                    Text(sendError).font(.caption2).foregroundColor(.red).lineLimit(2)
+                } else if !sentTip.isEmpty {
                     Text(sentTip).font(.caption2).foregroundColor(.green)
                 }
                 Button {
@@ -181,10 +192,15 @@ struct CloudHomeView: View {
         guard !text.isEmpty, !sending else { return }
         prompt = ""
         sending = true
+        sendError = nil
         mon.relay.useWorkspace(wsKey)
         mon.relay.startNewChat(firstInput: text)
         sentTip = "已派出 ✓"
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { sentTip = ""; sending = false }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            sentTip = ""
+            // 发送结果由 RelayMonitor.lastSendError 回调修正；没报错才算恢复
+            if mon.lastSendError == nil { sending = false }
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) { mon.refreshWorkspacesPub() }
     }
 
@@ -388,11 +404,15 @@ struct CloudHomeView: View {
         guard !text.isEmpty, !sending else { return }
         prompt = ""
         sending = true
+        sendError = nil
         mon.relay.useWorkspace(key)
         mon.relay.startNewChat(firstInput: text)
         sentTip = "已派出 ✓"
         inlineComposeFor = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { sentTip = ""; sending = false }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            sentTip = ""
+            if mon.lastSendError == nil { sending = false }
+        }
     }
 
     private func wsShortName(_ path: String) -> String {

@@ -134,6 +134,8 @@ struct SettingsView: View {
     @State private var loginProvider = UserDefaults.standard.string(forKey: "officialLoginProvider") ?? "bigmodel"
     @State private var msg = ""
     @State private var storageRows: [(String, String)] = []
+    @State private var barkOn = AppSettings.barkEnabled
+    @State private var barkURLInput = AppSettings.barkURL
 
     private func dirSizeMB(_ path: String) -> String {
         let fm = FileManager.default
@@ -244,6 +246,19 @@ struct SettingsView: View {
                     Text("退到后台后：Pocket 地址可达时轮询本机任务（20 秒）；官方远控配对后走 ZCode 云中继收桌面任务。完成/出错弹系统横幅，点通知直达会话。")
                         .font(.footnote)
                         .foregroundColor(.secondary)
+                }
+                Section("Bark 推送（双保险）") {
+                    Toggle("开启 Bark", isOn: $barkOn)
+                        .onChange(of: barkOn) { AppSettings.barkEnabled = $0 }
+                    if barkOn {
+                        TextField("https://api.day.app/你的Key", text: $barkURLInput)
+                            .keyboardType(.URL)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                            .onChange(of: barkURLInput) { AppSettings.barkURL = $0 }
+                    }
+                    Text("官方中继通知之外，再经 Bark 服务器推一份到手机；进程被杀也能收到。")
+                        .font(.footnote).foregroundColor(.secondary)
                 }
                 Section("存储") {
                     if storageRows.isEmpty {
