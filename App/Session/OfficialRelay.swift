@@ -2,7 +2,7 @@ import Foundation
 
 /// 上报给桌面端/协议层的应用版本号，与 Info.plist 的 CFBundleShortVersionString 保持一致
 enum AppVersion {
-    static let current = "1.1.2"
+    static let current = "1.1.3"
 }
 
 /// rpc-frame 接收侧多片组装：官方对超过 1MB 的消息会分片发送。

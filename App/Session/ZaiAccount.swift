@@ -31,7 +31,11 @@ final class ZaiAccount: ObservableObject {
 
     private init() {
         jwt = loadJWT()
-        if jwt != nil { loginPhase = .done }
+        if jwt != nil {
+            loginPhase = .done
+            userLabel = UserDefaults.standard.string(forKey: Self.udUserKey)
+            lastProvider = UserDefaults.standard.string(forKey: Self.udProviderKey)
+        }
     }
 
     var isLoggedIn: Bool { jwt != nil }
@@ -42,6 +46,8 @@ final class ZaiAccount: ObservableObject {
         clearJWT()
         jwt = nil
         userLabel = nil
+        lastProvider = nil
+        UserDefaults.standard.removeObject(forKey: Self.udProviderKey)
         authorizeURL = nil
         loginPhase = .idle
     }
@@ -78,6 +84,10 @@ final class ZaiAccount: ObservableObject {
                             self.jwt = poll.jwt
                             self.userLabel = poll.userLabel
                             self.loginPhase = .done
+                            UserDefaults.standard.set(poll.userLabel ?? "", forKey: Self.udUserKey)
+                            if let p = self.lastProvider {
+                                UserDefaults.standard.set(p, forKey: Self.udProviderKey)
+                            }
                         }
                         return
                     case .failed:
@@ -96,7 +106,14 @@ final class ZaiAccount: ObservableObject {
         }
     }
 
-    // MARK: - 钥匙串
+    // MARK: - 凭据存储
+
+    // 巨魔（TrollStore）覆盖安装会重签名，旧钥匙串条目会失效（登录"消失"）。
+    // 所以 JWT 主存放在 App 数据目录（UserDefaults，覆盖安装保留），钥匙串只作兼容回读。
+
+    private static let udJWTKey = "zai.account.jwt"
+    private static let udUserKey = "zai.account.user"
+    private static let udProviderKey = "zai.account.provider"
 
     private func baseQuery() -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
@@ -105,17 +122,24 @@ final class ZaiAccount: ObservableObject {
     }
 
     private func loadJWT() -> String? {
+        if let v = UserDefaults.standard.string(forKey: Self.udJWTKey), !v.isEmpty {
+            return v
+        }
+        // 兼容：v1.1.x 早期只存钥匙串，还在且可读就迁移回来
         var query = baseQuery()
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: AnyObject?
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+              let data = result as? Data,
+              let legacy = String(data: data, encoding: .utf8), !legacy.isEmpty else { return nil }
+        UserDefaults.standard.set(legacy, forKey: Self.udJWTKey)
+        return legacy
     }
 
     private func saveJWT(_ value: String) {
         guard !value.isEmpty else { return }
+        UserDefaults.standard.set(value, forKey: Self.udJWTKey)
         var query = baseQuery()
         let update: [String: Any] = [kSecValueData as String: Data(value.utf8)]
         if SecItemUpdate(query as CFDictionary, update as CFDictionary) == errSecItemNotFound {
@@ -125,6 +149,8 @@ final class ZaiAccount: ObservableObject {
     }
 
     private func clearJWT() {
+        UserDefaults.standard.removeObject(forKey: Self.udJWTKey)
+        UserDefaults.standard.removeObject(forKey: Self.udUserKey)
         SecItemDelete(baseQuery() as CFDictionary)
     }
 
