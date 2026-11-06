@@ -1,0 +1,56 @@
+name: Build Pocket IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate Xcode project
+        run: python3 scripts/gen_xcodeproj.py
+
+      - name: Build unsigned iOS app
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project PocketApp.xcodeproj \
+            -scheme Pocket \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            IPHONEOS_DEPLOYMENT_TARGET=16.0 \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM=""
+
+      - name: Package IPA
+        run: |
+          set -euo pipefail
+          chmod +x scripts/package_ipa.sh
+          DERIVED_DATA_PATH="$PWD/build" IPA_OUTPUT="$PWD/Pocket.ipa" scripts/package_ipa.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Pocket-ipa
+          path: Pocket.ipa
+
+      - name: Publish rolling prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete pocket-latest --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+          gh release create pocket-latest Pocket.ipa \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Pocket IPA (auto build)" \
+            --notes "CI 自动构建的最新未签名 IPA（TrollStore 安装）。commit: ${GITHUB_SHA::7}" \
+            --prerelease
