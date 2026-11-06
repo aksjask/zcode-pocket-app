@@ -30,13 +30,30 @@ struct RelayComposeView: View {
                             Text("桌面还没有上报工作区，稍等几秒，或回桌面确认 ZCode 已打开。")
                                 .font(.footnote).foregroundColor(.secondary)
                         } else {
-                            Picker("工作区", selection: $wsKey) {
-                                ForEach(mon.workspaces, id: \.key) { w in
-                                    Text(w.label ?? w.path ?? w.key).tag(Optional(w.key))
+                            ForEach(mon.workspaces, id: \.key) { w in
+                                Button {
+                                    wsKey = w.key
+                                    mon.relay.useWorkspace(w.key)
+                                } label: {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(mon.friendlyWorkspaceName(w))
+                                                .font(.subheadline)
+                                                .foregroundColor(.primary)
+                                                .lineLimit(1)
+                                            Text(w.label ?? w.key)
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                        Spacer()
+                                        if wsKey == w.key {
+                                            Image(systemName: "checkmark")
+                                                .font(.footnote)
+                                                .foregroundColor(.accentColor)
+                                        }
+                                    }
                                 }
-                            }
-                            .onChange(of: wsKey) { newValue in
-                                mon.relay.useWorkspace(newValue)
                             }
                         }
                     }

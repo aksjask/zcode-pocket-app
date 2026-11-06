@@ -127,7 +127,7 @@ struct CloudHomeView: View {
             HStack(spacing: 8) {
                 Menu {
                     ForEach(mon.workspaces, id: \.key) { w in
-                        Button(w.label ?? w.path ?? w.key) { wsKey = w.key }
+                        Button(mon.friendlyWorkspaceName(w)) { wsKey = w.key }
                     }
                 } label: {
                     HStack(spacing: 4) {
@@ -167,9 +167,9 @@ struct CloudHomeView: View {
 
     private var wsSelectedName: String {
         if let wsKey, let w = mon.workspaces.first(where: { $0.key == wsKey }) {
-            return (w.label ?? w.path ?? w.key) as String
+            return mon.friendlyWorkspaceName(w)
         }
-        return mon.workspaces.first.map { ($0.label ?? $0.path ?? $0.key) as String } ?? "选工作区"
+        return mon.workspaces.first.map { mon.friendlyWorkspaceName($0) } ?? "选工作区"
     }
 
     private var canSend: Bool {

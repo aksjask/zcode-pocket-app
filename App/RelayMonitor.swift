@@ -30,6 +30,19 @@ final class RelayMonitor: ObservableObject {
     /// 桌面任务列表（云端模式主页用）
     var tasks: [TaskSummary] { relay.tasks }
 
+    /// 工作区展示名：桌面端 label 是会话目录尾段（如 draft-xxx），不可读；
+    /// 优先用该工作区最新任务的标题，让人一眼认出是哪个项目。
+    func friendlyWorkspaceName(_ w: OfficialRelay.WorkspaceInfo) -> String {
+        if let path = w.path {
+            let latest = tasks
+                .filter { ($0.workspacePath ?? "").caseInsensitiveCompare(path) == .orderedSame }
+                .filter { !$0.title.isEmpty }
+                .max { $0.updatedAt < $1.updatedAt }
+            if let latest { return latest.title }
+        }
+        return (w.label ?? w.path ?? w.key) as String
+    }
+
     /// 会话消息缓存（taskId → 消息流），任务详情页用
     @Published var messages: [String: [ChatMessage]] = [:]
 
