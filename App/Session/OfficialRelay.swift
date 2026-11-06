@@ -2,7 +2,7 @@ import Foundation
 
 /// 上报给桌面端/协议层的应用版本号，与 Info.plist 的 CFBundleShortVersionString 保持一致
 enum AppVersion {
-    static let current = "1.1.3"
+    static let current = "1.1.4"
 }
 
 /// rpc-frame 接收侧多片组装：官方对超过 1MB 的消息会分片发送。
@@ -892,6 +892,35 @@ final class OfficialRelay: NSObject, URLSessionWebSocketDelegate {
         let topic = dict["topic"] as? String ?? ""
         let frame = dict["frame"] as? [String: Any]
         let payload = (frame?["payload"] as? [String: Any]) ?? (dict["payload"] as? [String: Any])
+        // 新版桌面（V2）订阅后的首帧是 snapshot（bootstrap 里没有任务列表），必须处理，
+        // 否则任务列表一直是空的、只能靠之后的增量零星更新。
+        if (payload?["kind"] as? String) == "snapshot" {
+            let snap = payload?["snapshot"] as? [String: Any] ?? [:]
+            if topic == "controller/tasks-index" {
+                let items = snap["tasks"] as? [[String: Any]] ?? []
+                var updated: [TaskSummary] = []
+                for item in items {
+                    if let summary = Self.taskSummary(fromRow: item) { updated.append(summary) }
+                }
+                if !updated.isEmpty {
+                    updated.sort { $0.updatedAt > $1.updatedAt }
+                    tasks = updated
+                    onSnapshot?()
+                }
+            } else if topic == "controller/workspaces" {
+                let items = snap["workspaces"] as? [[String: Any]] ?? []
+                let parsed = Self.parseWorkspaces(items)
+                if !parsed.isEmpty {
+                    // bootstrap 给过 label 的条目，快照里缺 label 时沿用
+                    let merged = parsed.map { w in
+                        (w.label != nil) ? w : (workspaces.first(where: { $0.key == w.key }) ?? w)
+                    }
+                    workspaces = merged
+                    onSnapshot?()
+                }
+            }
+            return
+        }
         guard let deltas = payload?["deltas"] as? [[String: Any]] else { return }
         if topic.hasPrefix("conversation/") {
             let sid = String(topic.dropFirst("conversation/".count))
@@ -949,27 +978,9 @@ final class OfficialRelay: NSObject, URLSessionWebSocketDelegate {
         for d in deltas {
             guard (d["op"] as? String) == "task.upserted",
                   let task = d["task"] as? [String: Any],
-                  let meta = task["meta"] as? [String: Any],
-                  let id = meta["taskId"] as? String
+                  let summary = Self.taskSummary(fromRow: task)
             else { continue }
-            let membership = task["membership"] as? [String: Any] ?? [:]
-            let status = (task["liveStatus"] as? String) ?? (meta["status"] as? String) ?? "idle"
-            var summary = TaskSummary(
-                id: id,
-                title: meta["title"] as? String ?? "未命名任务",
-                status: status,
-                mode: meta["mode"] as? String,
-                model: meta["model"] as? String,
-                workspacePath: meta["workspacePath"] as? String,
-                pinned: (membership["pinned"] as? Bool) ?? false,
-                updatedAt: RpcFrame.intValue(meta["updatedAt"]),
-                createdAt: RpcFrame.intValue(meta["createdAt"]),
-                modelId: nil,
-                thoughtLevel: meta["thoughtLevel"] as? String
-            )
-            if let full = meta["model"] as? String, let slash = full.lastIndex(of: "/") {
-                summary.modelId = String(full[full.index(after: slash)...])
-            }
+            let id = summary.id
             if let idx = updated.firstIndex(where: { $0.id == id }) {
                 updated[idx] = summary
             } else {
@@ -982,6 +993,31 @@ final class OfficialRelay: NSObject, URLSessionWebSocketDelegate {
             tasks = updated
             onSnapshot?()
         }
+    }
+
+    /// tasks-index 行（快照与增量的 task 对象同构）→ 任务摘要
+    static func taskSummary(fromRow task: [String: Any]) -> TaskSummary? {
+        guard let meta = task["meta"] as? [String: Any],
+              let id = meta["taskId"] as? String else { return nil }
+        let membership = task["membership"] as? [String: Any] ?? [:]
+        let status = (task["liveStatus"] as? String) ?? (meta["status"] as? String) ?? "idle"
+        var summary = TaskSummary(
+            id: id,
+            title: meta["title"] as? String ?? "未命名任务",
+            status: status,
+            mode: meta["mode"] as? String,
+            model: meta["model"] as? String,
+            workspacePath: meta["workspacePath"] as? String,
+            pinned: (membership["pinned"] as? Bool) ?? false,
+            updatedAt: RpcFrame.intValue(meta["updatedAt"]),
+            createdAt: RpcFrame.intValue(meta["createdAt"]),
+            modelId: nil,
+            thoughtLevel: meta["thoughtLevel"] as? String
+        )
+        if let full = meta["model"] as? String, let slash = full.lastIndex(of: "/") {
+            summary.modelId = String(full[full.index(after: slash)...])
+        }
+        return summary
     }
 
     private func sendJSON(_ object: [String: Any]) {
