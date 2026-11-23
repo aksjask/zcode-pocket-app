@@ -41,7 +41,7 @@ struct RelayComposeView: View {
                                                 .font(.subheadline)
                                                 .foregroundColor(.primary)
                                                 .lineLimit(1)
-                                            Text(w.label ?? w.key)
+                                            Text(mon.workspaceSubtitle(w))
                                                 .font(.caption2)
                                                 .foregroundColor(.secondary)
                                                 .lineLimit(1)

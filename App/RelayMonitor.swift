@@ -30,17 +30,43 @@ final class RelayMonitor: ObservableObject {
     /// 桌面任务列表（云端模式主页用）
     var tasks: [TaskSummary] { relay.tasks }
 
-    /// 工作区展示名：桌面端 label 是会话目录尾段（如 draft-xxx），不可读；
-    /// 优先用该工作区最新任务的标题，让人一眼认出是哪个项目。
+    /// 工作区展示名：桌面端 label 常是会话目录尾段（draft-<uuid>），不可读。
+    /// 依次尝试：① 该工作区最新任务的标题 ② 路径尾段项目名 ③ 非 draft 的 label ④ 草稿短号。
     func friendlyWorkspaceName(_ w: OfficialRelay.WorkspaceInfo) -> String {
+        // 桌面端不同通道给的标识字段不一致，全部拿来比，避免精确匹配单个字段失败
+        let ids = [w.path, w.key, w.identity, w.label].compactMap { $0 }.filter { !$0.isEmpty }
         if let path = w.path {
             let latest = tasks
-                .filter { ($0.workspacePath ?? "").caseInsensitiveCompare(path) == .orderedSame }
-                .filter { !$0.title.isEmpty }
+                .filter { t in
+                    guard let tp = t.workspacePath, !tp.isEmpty else { return false }
+                    return ids.contains { tp.caseInsensitiveCompare($0) == .orderedSame }
+                }
+                .filter { !$0.title.isEmpty && $0.title != "未命名任务" }
                 .max { $0.updatedAt < $1.updatedAt }
             if let latest { return latest.title }
         }
-        return (w.label ?? w.path ?? w.key) as String
+        // 路径尾段通常是项目目录名；draft- 开头的是草稿目录，不用
+        if let path = w.path {
+            let tail = (path as NSString).lastPathComponent
+            if !tail.isEmpty, !tail.lowercased().hasPrefix("draft-") { return tail }
+        }
+        if let label = w.label, !label.isEmpty, !label.lowercased().hasPrefix("draft-") {
+            return label
+        }
+        return shortWorkspaceId(w)
+    }
+
+    /// 副标题：给出路径或短号，避免和第一行重复同一串 draft-uuid。
+    func workspaceSubtitle(_ w: OfficialRelay.WorkspaceInfo) -> String {
+        if let path = w.path, !path.isEmpty { return path }
+        return shortWorkspaceId(w)
+    }
+
+    private func shortWorkspaceId(_ w: OfficialRelay.WorkspaceInfo) -> String {
+        let raw = w.label ?? w.path ?? w.key
+        guard raw.lowercased().hasPrefix("draft-") else { return raw }
+        let tail = String(raw.dropFirst("draft-".count))
+        return "草稿 \(tail.prefix(8))"
     }
 
     /// 会话消息缓存（taskId → 消息流），任务详情页用

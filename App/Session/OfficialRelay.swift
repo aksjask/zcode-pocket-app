@@ -540,6 +540,7 @@ final class OfficialRelay: NSObject, URLSessionWebSocketDelegate {
     }
 
     private func applyWorkspaceList(_ result: [String: Any]) {
+        writeDebug("workspace-list-raw", result)
         workspaces = Self.parseWorkspaces(result["workspaces"] as? [[String: Any]] ?? [])
         tasks = Self.parseTasks(result["tasks"] as? [[String: Any]] ?? [])
         if let key = result["activeWorkspaceKey"] as? String { activeWorkspaceKey = key }
@@ -919,6 +920,7 @@ final class OfficialRelay: NSObject, URLSessionWebSocketDelegate {
                 onSnapshot?()
             } else if topic == "controller/workspaces" {
                 let items = snap["workspaces"] as? [[String: Any]] ?? []
+                writeDebug("workspace-snapshot-raw", ["workspaces": items])
                 let parsed = Self.parseWorkspaces(items)
                 if !parsed.isEmpty {
                     // bootstrap 给过 label 的条目，快照里缺 label 时沿用
